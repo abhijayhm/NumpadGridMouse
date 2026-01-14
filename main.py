@@ -13,6 +13,7 @@ from virtual_pointer import VirtualPointer
 from sound_manager import SoundManager
 from monitor_utils import get_monitor_containing_cursor, get_all_monitors, get_primary_monitor
 from config import Config
+from status_window import StatusWindow
 
 
 class NumpadGridMouse:
@@ -25,6 +26,7 @@ class NumpadGridMouse:
         self.input_handler = InputHandler(self.config)
         self.virtual_pointer = VirtualPointer()
         self.sound_manager = SoundManager(self.config)
+        self.status_window = StatusWindow(self.config)
         
         self.running = True
         self.action_queue = queue.Queue()
@@ -251,19 +253,25 @@ class NumpadGridMouse:
         # Move pointer to center first
         self.virtual_pointer.move_to(center_x, center_y, sync=True)
         
-        # Get scroll amount from config
+        # Get scroll amount and scale from config
         scroll_amount = self.config.get('behavior', 'scroll_amount')
+        scroll_scale = self.config.get('behavior', 'scroll_scale')
+        if scroll_scale is None:
+            scroll_scale = 10.0  # Default to 10x
+        
+        # Apply scale to scroll amount and convert to int
+        scaled_amount = int(round(scroll_amount * scroll_scale))
         
         # Determine scroll direction
         dx, dy = 0, 0
         if direction == 'up':
-            dy = scroll_amount
+            dy = scaled_amount
         elif direction == 'down':
-            dy = -scroll_amount
+            dy = -scaled_amount
         elif direction == 'left':
-            dx = -scroll_amount
+            dx = -scaled_amount
         elif direction == 'right':
-            dx = scroll_amount
+            dx = scaled_amount
         
         self.virtual_pointer.scroll(dx, dy)
         self.sound_manager.play_scroll()
@@ -273,6 +281,8 @@ class NumpadGridMouse:
         # Store whether overlay was visible before pausing
         self._overlay_was_visible_before_pause = self.overlay.is_visible()
         self.overlay.hide()
+        # Update status window
+        self.status_window.update_status(paused=True)
     
     def _on_resume(self):
         """Handle resume (restore overlay if it was visible before pause)."""
@@ -283,6 +293,8 @@ class NumpadGridMouse:
                 self.overlay.update_display()
             self.overlay.show()
             self._overlay_was_visible_before_pause = False  # Reset flag
+        # Update status window
+        self.status_window.update_status(paused=False)
     
     def run(self):
         """Main application loop."""
@@ -290,6 +302,9 @@ class NumpadGridMouse:
         print("Press Ctrl+Shift+/ to toggle grid")
         print("Press Esc or Ctrl+Shift+/ to reset to full screen grid (when grid is visible)")
         print("Press Esc to exit (when grid is hidden)")
+        
+        # Show status window on startup
+        self.status_window.show()
         
         self.input_handler.start()
         
@@ -306,7 +321,14 @@ class NumpadGridMouse:
                 # Update overlay if visible
                 if self.overlay.is_visible():
                     self.overlay.update()
-                else:
+                
+                # Update status window
+                self.status_window.update()
+                
+                # Update status window listener state from input handler
+                self.status_window.update_status(self.input_handler.is_listener_paused())
+                
+                if not self.overlay.is_visible():
                     time.sleep(0.01)  # Small sleep to prevent busy waiting
         except KeyboardInterrupt:
             print("\nShutting down...")
@@ -342,6 +364,7 @@ class NumpadGridMouse:
         """Clean shutdown."""
         self.input_handler.stop()
         self.overlay.destroy()
+        self.status_window.destroy()
         self.running = False
 
 

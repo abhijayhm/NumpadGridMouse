@@ -44,6 +44,7 @@ class Config:
             'behavior': {
                 'max_depth': 0,  # 0 = unlimited
                 'scroll_amount': 3,  # lines/pixels
+                'scroll_scale': 10,  # multiplier for scroll strength
                 'animation_duration': 0.1  # seconds
             },
             'hotkeys': {

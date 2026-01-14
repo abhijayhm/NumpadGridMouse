@@ -86,15 +86,62 @@ class VirtualPointer:
         
         x, y = self.get_position()
         
-        # Move to position and scroll
+        # Move to position
         pyautogui.moveTo(x, y)
         
+        # Convert to integers and handle large scroll values
+        # pyautogui.scroll expects integer values, and Windows API has limits
+        # Break large scrolls into multiple smaller scrolls
+        max_scroll_per_call = 120  # Standard Windows scroll unit
+        
         if dy != 0:
-            pyautogui.scroll(dy, x=x, y=y)
+            dy_int = int(round(dy))
+            # Break into chunks if too large
+            if abs(dy_int) > max_scroll_per_call:
+                # Calculate number of scroll calls needed
+                num_scrolls = abs(dy_int) // max_scroll_per_call
+                remainder = abs(dy_int) % max_scroll_per_call
+                direction = 1 if dy_int > 0 else -1
+                
+                # Perform multiple scrolls
+                for _ in range(num_scrolls):
+                    pyautogui.scroll(direction * max_scroll_per_call, x=x, y=y)
+                
+                # Perform remainder scroll if any
+                if remainder > 0:
+                    pyautogui.scroll(direction * remainder, x=x, y=y)
+            else:
+                pyautogui.scroll(dy_int, x=x, y=y)
         
         if dx != 0:
-            # Horizontal scrolling requires win32api on Windows
-            win32api.mouse_event(
-                win32con.MOUSEEVENTF_HWHEEL,
-                x, y, dx * 120, 0  # 120 is standard scroll unit
-            )
+            dx_int = int(round(dx))
+            # Convert to Windows scroll units (120 per unit)
+            scroll_units = dx_int * 120
+            # Break into chunks if too large (Windows limit is typically 32767)
+            max_wheel_delta = 32767
+            
+            if abs(scroll_units) > max_wheel_delta:
+                # Calculate number of scroll calls needed
+                num_scrolls = abs(scroll_units) // max_wheel_delta
+                remainder = abs(scroll_units) % max_wheel_delta
+                direction = 1 if scroll_units > 0 else -1
+                
+                # Perform multiple scrolls
+                for _ in range(num_scrolls):
+                    win32api.mouse_event(
+                        win32con.MOUSEEVENTF_HWHEEL,
+                        x, y, direction * max_wheel_delta, 0
+                    )
+                
+                # Perform remainder scroll if any
+                if remainder > 0:
+                    win32api.mouse_event(
+                        win32con.MOUSEEVENTF_HWHEEL,
+                        x, y, direction * remainder, 0
+                    )
+            else:
+                # Horizontal scrolling requires win32api on Windows
+                win32api.mouse_event(
+                    win32con.MOUSEEVENTF_HWHEEL,
+                    x, y, scroll_units, 0
+                )

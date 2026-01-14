@@ -24,6 +24,7 @@ a = Analysis(
         'PIL._tkinter_finder',
         'tkinter',
         'tkinter.font',
+        'status_window',
     ],
     hookspath=[],
     hooksconfig={},

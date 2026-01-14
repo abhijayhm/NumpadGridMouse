@@ -266,3 +266,7 @@ class InputHandler:
     def set_state(self, state: GridState):
         """Update the state machine."""
         self.state = state
+    
+    def is_listener_paused(self) -> bool:
+        """Check if listener is currently paused."""
+        return self._listener_paused
