@@ -16,6 +16,7 @@ class GridState(Enum):
     HIDDEN = "hidden"
     VISIBLE = "visible"
     SELECTING = "selecting"
+    SELECTING_MONITOR = "selecting_monitor"
 
 
 class InputHandler:
@@ -30,6 +31,7 @@ class InputHandler:
         self.callbacks = {
             'on_toggle': None,
             'on_exit': None,
+            'on_reset_to_top': None,
             'on_number': None,
             'on_enter': None,
             'on_shift_enter': None,
@@ -53,14 +55,20 @@ class InputHandler:
             self.callbacks['on_toggle']()
     
     def _on_exit(self):
-        """Handle exit key."""
-        if self.state == GridState.VISIBLE:
-            if self.callbacks['on_exit']:
-                self.callbacks['on_exit']()
+        """Handle exit key - works in ALL states."""
+        # ESC should always work, regardless of state
+        if self.callbacks['on_exit']:
+            self.callbacks['on_exit']()
+    
+    def _on_reset_to_top(self):
+        """Handle reset to top level - shows original full screen grid."""
+        if self.callbacks['on_reset_to_top']:
+            self.callbacks['on_reset_to_top']()
     
     def _on_number(self, key: int):
         """Handle number key press (1-9)."""
-        if self.state == GridState.VISIBLE:
+        # Handle number keys in both VISIBLE and SELECTING_MONITOR states
+        if self.state == GridState.VISIBLE or self.state == GridState.SELECTING_MONITOR:
             if self.callbacks['on_number']:
                 self.callbacks['on_number'](key)
     
@@ -98,8 +106,21 @@ class InputHandler:
         """Handle key press using pynput (detection only, no suppression)."""
         self._pressed_keys.add(key)
         
-        # Only handle keys when grid is visible
-        if self.state != GridState.VISIBLE:
+        # ESC resets to top level when grid is visible, exits when hidden
+        if key == pynput_keyboard.Key.esc:
+            if self.state == GridState.VISIBLE:
+                # Grid is visible - reset to top level
+                self._on_reset_to_top()
+            else:
+                # Grid is hidden - exit
+                self._on_exit()
+            return True
+        
+        # Note: Ctrl+Shift+/ is handled by keyboard library hotkey registration
+        # This pynput handler is for other key detection
+        
+        # Handle keys when grid is visible or when selecting monitor
+        if self.state != GridState.VISIBLE and self.state != GridState.SELECTING_MONITOR:
             return True  # Let key through normally
         
         try:
@@ -150,9 +171,6 @@ class InputHandler:
             
             elif key == pynput_keyboard.Key.right:
                 self._on_arrow('right')
-            
-            elif key == pynput_keyboard.Key.esc:
-                self._on_exit()
         except Exception as e:
             # If there's an error, just continue
             pass
@@ -173,6 +191,20 @@ class InputHandler:
             keyboard.add_hotkey(toggle_hotkey, self._on_toggle)
         except Exception as e:
             print(f"Error registering hotkey {toggle_hotkey}: {e}")
+        
+        # Register Ctrl+Shift+/ - behavior depends on state
+        def _on_ctrl_shift_slash():
+            if self.state == GridState.VISIBLE:
+                # Grid is visible - reset to top level
+                self._on_reset_to_top()
+            else:
+                # Grid is hidden - toggle (show grid)
+                self._on_toggle()
+        
+        try:
+            keyboard.add_hotkey('ctrl+shift+/', _on_ctrl_shift_slash)
+        except Exception as e:
+            print(f"Error registering reset hotkey ctrl+shift+/: {e}")
         
         # Start pynput listener for key detection only
         # Don't suppress - let keyboard work normally, we just detect keys

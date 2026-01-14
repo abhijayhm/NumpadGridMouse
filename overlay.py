@@ -10,6 +10,7 @@ import win32api
 from typing import List, Optional
 from grid_model import Region, GridModel
 from config import Config
+from monitor_utils import get_virtual_desktop_bounds, get_all_monitor_rects
 
 
 class OverlayWindow:
@@ -22,6 +23,8 @@ class OverlayWindow:
         self.root = tk.Tk()
         self.canvas: Optional[tk.Canvas] = None
         self.grid_model: Optional[GridModel] = None
+        self.window_offset_x = 0
+        self.window_offset_y = 0
         self._setup_window()
         self._setup_canvas()
         # Hide overlay initially
@@ -40,12 +43,17 @@ class OverlayWindow:
         self.root.config(bg=transparent_color)
         self.root.attributes('-transparentcolor', transparent_color)
         
-        # Get screen dimensions
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
+        # Get virtual desktop bounds to cover all monitors
+        min_x, min_y, max_x, max_y = get_virtual_desktop_bounds()
+        screen_width = max_x - min_x
+        screen_height = max_y - min_y
         
-        # Position window to cover entire screen
-        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+        # Store window offset for coordinate conversion
+        self.window_offset_x = min_x
+        self.window_offset_y = min_y
+        
+        # Position window to cover entire virtual desktop (all monitors)
+        self.root.geometry(f"{screen_width}x{screen_height}+{min_x}+{min_y}")
         
         # Update to ensure window is created
         self.root.update_idletasks()
@@ -111,6 +119,90 @@ class OverlayWindow:
         """Set the grid model to visualize."""
         self.grid_model = grid_model
     
+    def show_monitor_selection(self, monitors):
+        """Show monitor selection overlay."""
+        if not self.canvas:
+            return
+        
+        self.canvas.delete("all")
+        
+        # Get virtual desktop bounds for overlay
+        min_x, min_y, max_x, max_y = get_virtual_desktop_bounds()
+        screen_width = max_x - min_x
+        screen_height = max_y - min_y
+        
+        # Draw each monitor with a number
+        border_color = self.config.get('grid', 'border_color')
+        base_font_size = self.config.get('grid', 'font_size')
+        label_font = font.Font(size=base_font_size, weight='bold')
+        
+        # Get full monitor rects (not work areas) for accurate outline display
+        monitor_rects = get_all_monitor_rects()
+        
+        for idx, monitor_rect in enumerate(monitor_rects):
+            x, y, w, h = monitor_rect
+            
+            # Convert screen coordinates to canvas coordinates (relative to window)
+            canvas_x = x - self.window_offset_x
+            canvas_y = y - self.window_offset_y
+            
+            # Draw monitor border (make it thinner)
+            self.canvas.create_rectangle(
+                canvas_x, canvas_y, canvas_x + w, canvas_y + h,
+                outline=border_color,
+                width=2,
+                fill=''
+            )
+            
+            # Draw monitor number in center
+            center_x = canvas_x + w // 2
+            center_y = canvas_y + h // 2
+            monitor_num = idx + 1
+            
+            # Draw background circle (make it smaller)
+            text_bg_size = base_font_size // 2 + 6
+            bg_fill = '#FFFF00'  # Bright yellow
+            self.canvas.create_oval(
+                center_x - text_bg_size, center_y - text_bg_size,
+                center_x + text_bg_size, center_y + text_bg_size,
+                fill=bg_fill, outline=border_color, width=1
+            )
+            
+            # Draw number
+            self.canvas.create_text(
+                center_x, center_y,
+                text=str(monitor_num),
+                fill='#000000',
+                font=label_font,
+                anchor='center'
+            )
+            
+            # Draw monitor info text below number
+            info_font = font.Font(size=base_font_size // 2)
+            info_text = f"Monitor {monitor_num}\n{w}×{h}"
+            self.canvas.create_text(
+                center_x, center_y + text_bg_size + 20,
+                text=info_text,
+                fill='#FFFFFF',
+                font=info_font,
+                anchor='center'
+            )
+        
+        # Show instruction text at top (relative to window)
+        instruction_font = font.Font(size=base_font_size // 2 + 4, weight='bold')
+        instruction_text = "Select Monitor: Press 1-9 to choose"
+        self.canvas.create_text(
+            screen_width // 2, 30,
+            text=instruction_text,
+            fill='#FFFFFF',
+            font=instruction_font,
+            anchor='center'
+        )
+        
+        # Force update
+        self.root.update_idletasks()
+        self.root.update()
+    
     def update_display(self):
         """Redraw the grid overlay."""
         if not self.canvas or not self.grid_model:
@@ -126,7 +218,21 @@ class OverlayWindow:
         line_thickness = self.config.get('grid', 'line_thickness')
         border_color = self.config.get('grid', 'border_color')
         text_color = self.config.get('grid', 'text_color')
-        font_size = self.config.get('grid', 'font_size')
+        base_font_size = self.config.get('grid', 'font_size')
+        
+        # Scale font size based on region size to prevent overlapping
+        # Use the smallest dimension of the first region as reference
+        if all_regions:
+            first_region = all_regions[0]
+            _, _, w, h = first_region.bounds()
+            min_dimension = min(w, h)
+            # Scale font: smaller regions get smaller font
+            # Base size for full screen, scale down proportionally
+            # Minimum font size of 6, maximum of base_font_size
+            # Use smaller divisor (40 instead of 25) to make text smaller
+            font_size = max(6, min(base_font_size, int(min_dimension / 40)))
+        else:
+            font_size = base_font_size
         
         # Create font
         label_font = font.Font(size=font_size, weight='bold')
@@ -137,9 +243,13 @@ class OverlayWindow:
         for idx, region in enumerate(all_regions):
             x, y, w, h = region.bounds()
             
+            # Convert screen coordinates to canvas coordinates (relative to window)
+            canvas_x = x - self.window_offset_x
+            canvas_y = y - self.window_offset_y
+            
             # Draw border with thicker lines for visibility
             self.canvas.create_rectangle(
-                x, y, x + w, y + h,
+                canvas_x, canvas_y, canvas_x + w, canvas_y + h,
                 outline=border_color,
                 width=line_thickness,
                 fill=''  # Empty fill - transparent
@@ -153,17 +263,18 @@ class OverlayWindow:
             
             if numpad_key:
                 # Draw label in center with background for visibility
-                center_x = x + w // 2
-                center_y = y + h // 2
+                center_x = canvas_x + w // 2
+                center_y = canvas_y + h // 2
                 # Draw background circle for text visibility - use bright color
-                text_bg_size = font_size // 2 + 12
+                # Scale background size with font size (make it smaller)
+                text_bg_size = max(6, font_size // 2 + 4)
                 # Use bright yellow background - NOT the transparent color
                 bg_fill = '#FFFF00'  # Bright yellow
-                # Draw filled circle background with border
+                # Draw filled circle background with border (make border thinner)
                 self.canvas.create_oval(
                     center_x - text_bg_size, center_y - text_bg_size,
                     center_x + text_bg_size, center_y + text_bg_size,
-                    fill=bg_fill, outline=border_color, width=2
+                    fill=bg_fill, outline=border_color, width=1
                 )
                 # Draw text with strong contrast - black on yellow
                 self.canvas.create_text(

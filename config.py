@@ -19,8 +19,8 @@ class Config:
         # Default configuration
         self.defaults = {
             'grid': {
-                'line_thickness': 2,
-                'font_size': 24,
+                'line_thickness': 1,
+                'font_size': 16,
                 'opacity': 0.85,
                 'border_color': '#00FF00',
                 'text_color': '#FFFFFF',
