@@ -88,8 +88,10 @@ class GridModel:
         row, col = self.NUMPAD_MAP[numpad_key]
         new_region = self.current_region.subdivide(row, col)
         
-        # Check depth limit
-        if self.max_depth > 0 and len(self.stack) >= self.max_depth:
+        # Check depth limit - max_depth is the maximum depth we can reach
+        # depth = len(stack) - 1, so after adding we'd have depth = len(stack)
+        # We should prevent if the new depth would exceed max_depth
+        if self.max_depth > 0 and len(self.stack) > self.max_depth:
             return None
         
         self.stack.append(new_region)

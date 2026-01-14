@@ -20,10 +20,19 @@ class VirtualPointer:
         self._sync_to_os()
     
     def _sync_to_os(self):
-        """Sync virtual pointer to current OS cursor position."""
-        x, y = pyautogui.position()
-        self.virtual_x = x
-        self.virtual_y = y
+        """Sync virtual pointer to current OS cursor position using native Windows API."""
+        if self.virtual_x is not None and self.virtual_y is not None:
+            # Move OS cursor to virtual pointer position using native Windows API
+            try:
+                win32api.SetCursorPos((int(self.virtual_x), int(self.virtual_y)))
+            except Exception as e:
+                # Fallback to pyautogui if win32api fails
+                pyautogui.moveTo(self.virtual_x, self.virtual_y)
+        else:
+            # Initialize from current OS cursor position
+            x, y = pyautogui.position()
+            self.virtual_x = x
+            self.virtual_y = y
     
     def move_to(self, x: int, y: int, sync: bool = False):
         """

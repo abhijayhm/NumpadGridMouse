@@ -32,7 +32,7 @@ class InputHandler:
             'on_exit': None,
             'on_number': None,
             'on_enter': None,
-            'on_ctrl_enter': None,
+            'on_shift_enter': None,
             'on_space': None,
             'on_backspace': None,
             'on_arrow': None,
@@ -70,11 +70,11 @@ class InputHandler:
             if self.callbacks['on_enter']:
                 self.callbacks['on_enter']()
     
-    def _on_ctrl_enter(self):
-        """Handle Ctrl+Enter."""
+    def _on_shift_enter(self):
+        """Handle Shift+Enter."""
         if self.state == GridState.VISIBLE:
-            if self.callbacks['on_ctrl_enter']:
-                self.callbacks['on_ctrl_enter']()
+            if self.callbacks['on_shift_enter']:
+                self.callbacks['on_shift_enter']()
     
     def _on_space(self):
         """Handle Space key."""
@@ -95,61 +95,70 @@ class InputHandler:
                 self.callbacks['on_arrow'](direction)
     
     def _on_pynput_press(self, key):
-        """Handle key press using pynput (for key suppression)."""
+        """Handle key press using pynput (detection only, no suppression)."""
         self._pressed_keys.add(key)
         
+        # Only handle keys when grid is visible
         if self.state != GridState.VISIBLE:
-            return True  # Don't suppress
+            return True  # Let key through normally
         
         try:
-            # Handle number keys
+            # Handle number keys (regular and numpad)
+            num = None
+            
+            # First try regular number keys via char attribute
             if hasattr(key, 'char') and key.char and key.char.isdigit():
                 num = int(key.char)
-                if 1 <= num <= 9:
-                    self._on_number(num)
-                    return False  # Suppress key
+            
+            # Then check virtual key codes (for numpad and regular keys)
+            if not num and hasattr(key, 'vk'):
+                vk = key.vk
+                # Numpad 1-9: vk codes 97-105 (numpad 0 is 96, we skip it)
+                if 97 <= vk <= 105:
+                    num = vk - 96  # Convert to 1-9
+                # Regular number keys 1-9: vk codes 49-57
+                elif 49 <= vk <= 57:
+                    num = vk - 48  # Convert to 1-9
+            
+            if num and 1 <= num <= 9:
+                self._on_number(num)
+                # Don't suppress - let key pass through to other apps
             
             # Handle special keys
-            if key == pynput_keyboard.Key.enter:
-                ctrl_pressed = (pynput_keyboard.Key.ctrl_l in self._pressed_keys or 
-                               pynput_keyboard.Key.ctrl_r in self._pressed_keys)
-                if ctrl_pressed:
-                    self._on_ctrl_enter()
+            elif key == pynput_keyboard.Key.enter:
+                shift_pressed = (pynput_keyboard.Key.shift_l in self._pressed_keys or 
+                                pynput_keyboard.Key.shift_r in self._pressed_keys)
+                if shift_pressed:
+                    self._on_shift_enter()
                 else:
                     self._on_enter()
-                return False
             
-            if key == pynput_keyboard.Key.space:
+            elif key == pynput_keyboard.Key.space:
                 self._on_space()
-                return False
             
-            if key == pynput_keyboard.Key.backspace:
+            elif key == pynput_keyboard.Key.backspace:
                 self._on_backspace()
-                return False
             
-            if key == pynput_keyboard.Key.up:
+            elif key == pynput_keyboard.Key.up:
                 self._on_arrow('up')
-                return False
             
-            if key == pynput_keyboard.Key.down:
+            elif key == pynput_keyboard.Key.down:
                 self._on_arrow('down')
-                return False
             
-            if key == pynput_keyboard.Key.left:
+            elif key == pynput_keyboard.Key.left:
                 self._on_arrow('left')
-                return False
             
-            if key == pynput_keyboard.Key.right:
+            elif key == pynput_keyboard.Key.right:
                 self._on_arrow('right')
-                return False
             
-            if key == pynput_keyboard.Key.esc:
+            elif key == pynput_keyboard.Key.esc:
                 self._on_exit()
-                return False
-        except Exception:
+        except Exception as e:
+            # If there's an error, just continue
             pass
         
-        return True  # Don't suppress other keys
+        # Always let keys through - we just detect and handle, don't block
+        return True
     
     def _on_pynput_release(self, key):
         """Handle key release using pynput."""
@@ -160,18 +169,24 @@ class InputHandler:
         """Main hook loop for capturing keyboard input."""
         # Register global hotkey using keyboard library
         toggle_hotkey = self.config.get('hotkeys', 'toggle')
-        keyboard.add_hotkey(toggle_hotkey, self._on_toggle)
+        try:
+            keyboard.add_hotkey(toggle_hotkey, self._on_toggle)
+        except Exception as e:
+            print(f"Error registering hotkey {toggle_hotkey}: {e}")
         
-        # Start pynput listener for key suppression when grid is visible
+        # Start pynput listener for key detection only
+        # Don't suppress - let keyboard work normally, we just detect keys
         self._pynput_listener = pynput_keyboard.Listener(
             on_press=self._on_pynput_press,
-            on_release=self._on_pynput_release
+            on_release=self._on_pynput_release,
+            suppress=False  # Don't block any keys, just detect
         )
         self._pynput_listener.start()
         
-        # Keep thread alive
+        # Keep thread alive - use sleep instead of blocking wait
+        import time
         while not self._stop_hook:
-            keyboard.wait()
+            time.sleep(0.1)
     
     def start(self):
         """Start the input handler."""

@@ -24,6 +24,8 @@ class OverlayWindow:
         self.grid_model: Optional[GridModel] = None
         self._setup_window()
         self._setup_canvas()
+        # Hide overlay initially
+        self.hide()
     
     def _setup_window(self):
         """Configure window properties for overlay."""
@@ -32,9 +34,11 @@ class OverlayWindow:
         self.root.attributes('-alpha', self.config.get('grid', 'opacity'))
         self.root.overrideredirect(True)  # Borderless
         
-        # Make window transparent
-        self.root.config(bg='black')
-        self.root.attributes('-transparentcolor', 'black')
+        # Use a specific transparent color that won't interfere with drawing
+        # Use a very specific color that we'll never use for drawing
+        transparent_color = '#010101'  # Almost black but not pure black
+        self.root.config(bg=transparent_color)
+        self.root.attributes('-transparentcolor', transparent_color)
         
         # Get screen dimensions
         screen_width = self.root.winfo_screenwidth()
@@ -52,8 +56,35 @@ class OverlayWindow:
     def _make_click_through(self):
         """Make the window click-through using Windows API."""
         try:
-            # Get window handle
-            hwnd = self.root.winfo_id()
+            # Ensure window is fully created
+            self.root.update_idletasks()
+            self.root.update()
+            
+            # Get window handle - try multiple methods for reliability
+            hwnd = None
+            
+            # Method 1: Use winfo_id() directly (works on Windows)
+            try:
+                frame_hwnd = self.root.winfo_id()
+                if frame_hwnd:
+                    # On Windows, winfo_id() returns the frame widget handle
+                    # Try to get the parent window (actual window handle)
+                    parent_hwnd = win32gui.GetParent(frame_hwnd)
+                    if parent_hwnd:
+                        hwnd = parent_hwnd
+                    else:
+                        # If no parent, the frame handle might be the window itself
+                        hwnd = frame_hwnd
+            except:
+                pass
+            
+            # Method 2: Find window by title if method 1 failed
+            if not hwnd:
+                try:
+                    hwnd = win32gui.FindWindow(None, "Numpad Grid Mouse Overlay")
+                except:
+                    pass
+            
             if hwnd:
                 # Get extended window style
                 ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
@@ -66,9 +97,11 @@ class OverlayWindow:
     
     def _setup_canvas(self):
         """Create and configure canvas for drawing."""
+        # Use the same transparent color as window
+        transparent_color = '#010101'
         self.canvas = tk.Canvas(
             self.root,
-            bg='black',
+            bg=transparent_color,
             highlightthickness=0,
             borderwidth=0
         )
@@ -104,12 +137,12 @@ class OverlayWindow:
         for idx, region in enumerate(all_regions):
             x, y, w, h = region.bounds()
             
-            # Draw border
+            # Draw border with thicker lines for visibility
             self.canvas.create_rectangle(
                 x, y, x + w, y + h,
                 outline=border_color,
                 width=line_thickness,
-                fill=''
+                fill=''  # Empty fill - transparent
             )
             
             # Calculate which numpad key this corresponds to
@@ -119,19 +152,35 @@ class OverlayWindow:
             numpad_key = numpad_to_key.get((row, col))
             
             if numpad_key:
-                # Draw label in center
+                # Draw label in center with background for visibility
                 center_x = x + w // 2
                 center_y = y + h // 2
+                # Draw background circle for text visibility - use bright color
+                text_bg_size = font_size // 2 + 12
+                # Use bright yellow background - NOT the transparent color
+                bg_fill = '#FFFF00'  # Bright yellow
+                # Draw filled circle background with border
+                self.canvas.create_oval(
+                    center_x - text_bg_size, center_y - text_bg_size,
+                    center_x + text_bg_size, center_y + text_bg_size,
+                    fill=bg_fill, outline=border_color, width=2
+                )
+                # Draw text with strong contrast - black on yellow
                 self.canvas.create_text(
                     center_x, center_y,
                     text=str(numpad_key),
-                    fill=text_color,
-                    font=label_font
+                    fill='#000000',  # Black text
+                    font=label_font,
+                    anchor='center'
                 )
         
         # Draw HUD if enabled
         if self.config.get('hud', 'enabled'):
             self._draw_hud(current_region)
+        
+        # Force update to ensure drawing is visible
+        self.root.update_idletasks()
+        self.root.update()
     
     def _draw_hud(self, current_region: Region):
         """Draw HUD showing depth and region bounds."""
@@ -190,8 +239,17 @@ class OverlayWindow:
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
+        # Force window to be visible
+        self.root.update_idletasks()
+        self.root.update()
+        # Update display when showing
+        if self.grid_model:
+            self.update_display()
         # Re-apply click-through after showing
         self._make_click_through()
+        # Final update to ensure everything is rendered
+        self.root.update_idletasks()
+        self.root.update()
     
     def hide(self):
         """Hide the overlay window."""
