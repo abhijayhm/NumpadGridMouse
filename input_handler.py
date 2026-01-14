@@ -38,11 +38,14 @@ class InputHandler:
             'on_space': None,
             'on_backspace': None,
             'on_arrow': None,
+            'on_pause': None,
+            'on_resume': None,
         }
         self._hook_thread: Optional[threading.Thread] = None
         self._pynput_listener: Optional[pynput_keyboard.Listener] = None
         self._stop_hook = False
         self._pressed_keys = set()
+        self._listener_paused = False  # Flag to pause/resume listener
     
     def register_callback(self, event: str, callback: Callable):
         """Register a callback for an input event."""
@@ -104,6 +107,10 @@ class InputHandler:
     
     def _on_pynput_press(self, key):
         """Handle key press using pynput (detection only, no suppression)."""
+        # If listener is paused, don't process any keys except the resume hotkey
+        if self._listener_paused:
+            return True
+        
         self._pressed_keys.add(key)
         
         # ESC resets to top level when grid is visible, exits when hidden
@@ -191,6 +198,28 @@ class InputHandler:
             keyboard.add_hotkey(toggle_hotkey, self._on_toggle)
         except Exception as e:
             print(f"Error registering hotkey {toggle_hotkey}: {e}")
+        
+        # Register Ctrl+Shift+. - toggle pause/resume listener
+        def _on_ctrl_shift_period():
+            if self._listener_paused:
+                # Listener is paused - resume it
+                self._listener_paused = False
+                print("Listener resumed (Ctrl+Shift+.)")
+                # Call resume callback to restore overlay if needed
+                if self.callbacks['on_resume']:
+                    self.callbacks['on_resume']()
+            else:
+                # Listener is active - pause it
+                self._listener_paused = True
+                print("Listener paused (Ctrl+Shift+.)")
+                # Call pause callback to hide overlay
+                if self.callbacks['on_pause']:
+                    self.callbacks['on_pause']()
+        
+        try:
+            keyboard.add_hotkey('ctrl+shift+.', _on_ctrl_shift_period)
+        except Exception as e:
+            print(f"Error registering pause/resume hotkey ctrl+shift+.: {e}")
         
         # Register Ctrl+Shift+/ - behavior depends on state
         def _on_ctrl_shift_slash():

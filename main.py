@@ -30,6 +30,7 @@ class NumpadGridMouse:
         self.action_queue = queue.Queue()
         self.selected_monitor = None  # Store selected monitor
         self.monitor_selection_mode = False
+        self._overlay_was_visible_before_pause = False  # Track overlay visibility before pause
         self._setup_callbacks()
     
     def _setup_callbacks(self):
@@ -43,6 +44,8 @@ class NumpadGridMouse:
         self.input_handler.register_callback('on_space', lambda: self.action_queue.put(('space', None)))
         self.input_handler.register_callback('on_backspace', lambda: self.action_queue.put(('backspace', None)))
         self.input_handler.register_callback('on_arrow', lambda direction: self.action_queue.put(('arrow', direction)))
+        self.input_handler.register_callback('on_pause', lambda: self.action_queue.put(('pause', None)))
+        self.input_handler.register_callback('on_resume', lambda: self.action_queue.put(('resume', None)))
     
     def _on_toggle(self):
         """Handle toggle hotkey."""
@@ -265,6 +268,22 @@ class NumpadGridMouse:
         self.virtual_pointer.scroll(dx, dy)
         self.sound_manager.play_scroll()
     
+    def _on_pause(self):
+        """Handle pause (hide overlay and track visibility state)."""
+        # Store whether overlay was visible before pausing
+        self._overlay_was_visible_before_pause = self.overlay.is_visible()
+        self.overlay.hide()
+    
+    def _on_resume(self):
+        """Handle resume (restore overlay if it was visible before pause)."""
+        if self._overlay_was_visible_before_pause:
+            # Restore overlay visibility
+            if self.grid_model:
+                self.overlay.set_grid_model(self.grid_model)
+                self.overlay.update_display()
+            self.overlay.show()
+            self._overlay_was_visible_before_pause = False  # Reset flag
+    
     def run(self):
         """Main application loop."""
         print("Numpad Grid Mouse started")
@@ -314,6 +333,10 @@ class NumpadGridMouse:
             self._on_backspace()
         elif action == 'arrow':
             self._on_arrow(data)
+        elif action == 'pause':
+            self._on_pause()
+        elif action == 'resume':
+            self._on_resume()
     
     def shutdown(self):
         """Clean shutdown."""
